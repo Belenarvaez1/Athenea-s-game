@@ -5,6 +5,7 @@ import type { Question, AnswerOption } from "@/types/game";
 import { QUESTIONS as DEFAULT_QUESTIONS } from "@/data/questions";
 
 const STORAGE_KEY = "kahoot-questions";
+const EDITOR_PASSWORD = "2855";
 
 function newQuestion(): Question {
   return {
@@ -34,12 +35,56 @@ function save(questions: Question[]) {
 }
 
 export default function EditorPage() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Question | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => { setQuestions(load()); }, []);
+
+  function handleUnlock(e: React.FormEvent) {
+    e.preventDefault();
+    if (passwordInput === EDITOR_PASSWORD) {
+      setUnlocked(true);
+      setPasswordError(false);
+    } else {
+      setPasswordError(true);
+      setPasswordInput("");
+    }
+  }
+
+  if (!unlocked) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 flex flex-col items-center justify-center gap-6 p-6">
+        <div className="text-5xl">🔒</div>
+        <h1 className="text-3xl font-black text-white">Editor Password</h1>
+        <form onSubmit={handleUnlock} className="flex flex-col gap-4 w-full max-w-xs">
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(false); }}
+            placeholder="Enter password"
+            className="text-center text-2xl font-bold bg-white rounded-2xl px-6 py-4 text-purple-800 outline-none focus:ring-4 focus:ring-white/40"
+            autoFocus
+          />
+          {passwordError && (
+            <p className="text-red-300 text-center text-sm font-bold">Incorrect password</p>
+          )}
+          <button
+            type="submit"
+            disabled={!passwordInput}
+            className="py-4 bg-white text-purple-800 font-black text-xl rounded-2xl hover:scale-105 disabled:opacity-40 disabled:scale-100 transition-transform"
+          >
+            Unlock →
+          </button>
+        </form>
+        <a href="/" className="text-white/40 hover:text-white/70 text-sm">← Back</a>
+      </main>
+    );
+  }
 
   function persist(qs: Question[]) {
     setQuestions(qs);
