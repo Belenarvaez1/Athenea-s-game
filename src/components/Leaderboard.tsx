@@ -1,6 +1,6 @@
 "use client";
 
-type Player = { name: string; score: number };
+import type { Player } from "@/types/game";
 
 type Props = {
   players: Player[];
@@ -26,6 +26,9 @@ export default function Leaderboard({ players, onNext, isLastQuestion }: Props) 
             <span className="text-3xl w-10 text-center">
               {MEDALS[i] ?? `#${i + 1}`}
             </span>
+            {p.avatar && (
+              <span className="text-2xl">{p.avatar}</span>
+            )}
             <span className="flex-1 text-white font-bold text-xl">{p.name}</span>
             <span className="text-yellow-300 font-black text-xl">
               {p.score.toLocaleString()}

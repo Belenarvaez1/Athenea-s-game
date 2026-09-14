@@ -6,6 +6,8 @@ import { getSocket } from "@/lib/socket";
 import AnswerButton from "@/components/AnswerButton";
 import Timer from "@/components/Timer";
 import ScorePopup from "@/components/ScorePopup";
+import { getAvatarBg } from "@/components/AvatarPicker";
+import { useGameMusic } from "@/hooks/useGameMusic";
 import type { Player, QuestionEvent, ResultsEvent } from "@/types/game";
 
 type Phase = "waiting" | "question" | "answered" | "results" | "finished";
@@ -14,6 +16,8 @@ type BtnState = "idle" | "selected" | "correct" | "wrong" | "disabled";
 export default function PlayPage() {
   const { pin } = useParams<{ pin: string }>();
   const router = useRouter();
+  const music = useGameMusic();
+
   const [phase, setPhase] = useState<Phase>("waiting");
   const [question, setQuestion] = useState<QuestionEvent | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -24,10 +28,23 @@ export default function PlayPage() {
 
   const playerName =
     typeof window !== "undefined" ? sessionStorage.getItem("player-name") ?? "You" : "You";
+  const playerAvatar =
+    typeof window !== "undefined" ? sessionStorage.getItem("player-avatar") ?? null : null;
 
   useEffect(() => {
     const socket = getSocket();
     if (!socket.connected) socket.connect();
+
+    function rejoin() {
+      const name = sessionStorage.getItem("player-name");
+      const avatar = sessionStorage.getItem("player-avatar");
+      if (!name) return;
+      socket.emit("player:join", { pin, name, avatar }, (res: { ok?: boolean; player?: Player }) => {
+        if (res.ok && res.player) setMe(res.player);
+      });
+    }
+
+    socket.on("connect", rejoin);
 
     socket.on("game:question", (q: QuestionEvent) => {
       setQuestion(q);
@@ -35,15 +52,20 @@ export default function PlayPage() {
       setSelectedIndex(null);
       setResults(null);
       setPhase("question");
+      music.startMusic("question");
     });
 
-    socket.on("game:timer", (t: number) => setTimeLeft(t));
+    socket.on("game:timer", (t: number) => {
+      setTimeLeft(t);
+      if (t <= 5 && t > 0) music.playTick();
+    });
 
     socket.on("game:results", (data: ResultsEvent) => {
       setResults(data);
       const myPlayer = data.players.find((p) => p.id === socket.id) ?? null;
       setMe(myPlayer);
       setPhase("results");
+      music.playReveal();
     });
 
     socket.on("game:over", (players: Player[]) => {
@@ -51,18 +73,23 @@ export default function PlayPage() {
       setMe(myPlayer);
       setFinalPlayers(players);
       setPhase("finished");
+      music.stopMusic();
     });
 
-    socket.on("game:host-disconnected", () => router.push("/"));
+    socket.on("game:host-disconnected", () => {
+      music.stopMusic();
+      router.push("/");
+    });
 
     return () => {
+      socket.off("connect", rejoin);
       socket.off("game:question");
       socket.off("game:timer");
       socket.off("game:results");
       socket.off("game:over");
       socket.off("game:host-disconnected");
     };
-  }, [router]);
+  }, [pin, router, music]);
 
   function submitAnswer(index: number) {
     if (phase !== "question" || selectedIndex !== null) return;
@@ -82,6 +109,17 @@ export default function PlayPage() {
     return "disabled";
   }
 
+  // ── Avatar bubble ──────────────────────────────────────────────────────────
+  function AvatarBubble({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+    const sizeClass = size === "lg" ? "w-28 h-28 text-6xl" : size === "md" ? "w-20 h-20 text-4xl" : "w-12 h-12 text-2xl";
+    const bg = playerAvatar ? getAvatarBg(playerAvatar) : "bg-purple-500";
+    return (
+      <div className={`${bg} ${sizeClass} rounded-full flex items-center justify-center shadow-lg flex-shrink-0`}>
+        {playerAvatar ?? "🎮"}
+      </div>
+    );
+  }
+
   // ── Finished ───────────────────────────────────────────────────────────────
   if (phase === "finished" && finalPlayers) {
     const sorted = [...finalPlayers].sort((a, b) => b.score - a.score);
@@ -97,8 +135,14 @@ export default function PlayPage() {
         </div>
         <div className="w-full max-w-sm flex flex-col gap-2">
           {sorted.slice(0, 5).map((p, i) => (
-            <div key={p.id} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${p.id === getSocket().id ? "bg-yellow-400/20 ring-2 ring-yellow-300" : "bg-white/10"}`}>
+            <div
+              key={p.id}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 ${
+                p.id === getSocket().id ? "bg-yellow-400/20 ring-2 ring-yellow-300" : "bg-white/10"
+              }`}
+            >
               <span className="text-xl">{"🥇🥈🥉"[i] ?? `#${i + 1}`}</span>
+              {p.avatar && <span className="text-xl">{p.avatar}</span>}
               <span className="flex-1 text-white font-bold truncate">{p.name}</span>
               <span className="text-yellow-300 font-black">{p.score.toLocaleString()}</span>
             </div>
@@ -115,9 +159,9 @@ export default function PlayPage() {
   if (phase === "waiting") {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 flex flex-col items-center justify-center gap-4">
-        <div className="text-6xl animate-pulse">⏳</div>
-        <p className="text-white text-xl font-bold">Waiting for the host…</p>
-        <p className="text-white/50 text-sm">{playerName}</p>
+        <AvatarBubble size="lg" />
+        <p className="text-white text-xl font-bold">{playerName}</p>
+        <p className="text-white/50 text-sm mt-1 animate-pulse">Waiting for the host…</p>
       </main>
     );
   }
@@ -141,10 +185,9 @@ export default function PlayPage() {
   if (phase === "answered") {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 flex flex-col items-center justify-center gap-6 p-6">
+        <AvatarBubble size="md" />
         <div className="text-7xl">
-          {selectedIndex !== null
-            ? ["🔴", "🔵", "🟡", "🟢"][selectedIndex]
-            : "✅"}
+          {selectedIndex !== null ? ["🔴", "🔵", "🟡", "🟢"][selectedIndex] : "✅"}
         </div>
         <h2 className="text-3xl font-black text-white">Answer submitted!</h2>
         <p className="text-white/60">Waiting for others…</p>
@@ -164,7 +207,10 @@ export default function PlayPage() {
         <span className="text-white/50 text-sm">
           Q{question ? question.index + 1 : "?"}/{question?.total ?? "?"}
         </span>
-        <span className="text-white/50 text-sm">{playerName}</span>
+        <div className="flex items-center gap-2">
+          <AvatarBubble size="sm" />
+          <span className="text-white/50 text-sm">{playerName}</span>
+        </div>
       </div>
 
       <Timer timeLeft={timeLeft} totalTime={question?.timeLimit ?? 20} />

@@ -6,6 +6,7 @@ import { getSocket } from "@/lib/socket";
 import Timer from "@/components/Timer";
 import Leaderboard from "@/components/Leaderboard";
 import AnswerDistribution from "@/components/AnswerDistribution";
+import { useGameMusic } from "@/hooks/useGameMusic";
 import type { Player, QuestionEvent, ResultsEvent } from "@/types/game";
 
 type Phase = "waiting" | "question" | "results" | "leaderboard" | "finished";
@@ -13,6 +14,7 @@ type Phase = "waiting" | "question" | "results" | "leaderboard" | "finished";
 export default function HostGamePage() {
   const { pin } = useParams<{ pin: string }>();
   const router = useRouter();
+  const music = useGameMusic();
   const [phase, setPhase] = useState<Phase>("waiting");
   const [question, setQuestion] = useState<QuestionEvent | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -24,15 +26,30 @@ export default function HostGamePage() {
     const socket = getSocket();
     if (!socket.connected) socket.connect();
 
+    type ReclaimRes = { ok?: boolean; phase?: Phase; players?: Player[]; currentQuestionIndex?: number };
+    function reclaim() {
+      socket.emit("host:reclaim", { pin }, (res: ReclaimRes) => {
+        if (!res.ok) return;
+        if (res.players) setPlayers(res.players);
+        if (res.phase && res.phase !== "waiting") setPhase(res.phase as Phase);
+      });
+    }
+
+    socket.on("connect", reclaim);
+
     socket.on("game:question", (q: QuestionEvent) => {
       setQuestion(q);
       setTimeLeft(q.timeLimit);
       setAnswerCount({ count: 0, total: 0 });
       setResults(null);
       setPhase("question");
+      music.startMusic("question");
     });
 
-    socket.on("game:timer", (t: number) => setTimeLeft(t));
+    socket.on("game:timer", (t: number) => {
+      setTimeLeft(t);
+      if (t <= 5 && t > 0) music.playTick();
+    });
 
     socket.on("game:answer-count", (data: { count: number; total: number }) => {
       setAnswerCount(data);
@@ -42,16 +59,24 @@ export default function HostGamePage() {
       setResults(data);
       setPlayers(data.players);
       setPhase("results");
+      music.playReveal();
     });
 
     socket.on("game:over", (finalPlayers: Player[]) => {
       setPlayers(finalPlayers);
       setPhase("finished");
+      music.stopMusic();
     });
 
-    socket.on("game:host-disconnected", () => router.push("/"));
+    socket.on("game:host-disconnected", () => {
+      music.stopMusic();
+      router.push("/");
+    });
+
+    if (socket.connected) reclaim();
 
     return () => {
+      socket.off("connect", reclaim);
       socket.off("game:question");
       socket.off("game:timer");
       socket.off("game:answer-count");
@@ -59,7 +84,7 @@ export default function HostGamePage() {
       socket.off("game:over");
       socket.off("game:host-disconnected");
     };
-  }, [router]);
+  }, [pin, router, music]);
 
   function nextQuestion() {
     getSocket().emit("host:next", { pin });

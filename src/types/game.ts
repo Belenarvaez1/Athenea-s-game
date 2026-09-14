@@ -14,6 +14,7 @@ export type Question = {
 export type Player = {
   id: string;
   name: string;
+  avatar?: string;
   score: number;
   lastCorrect: boolean | null;
   lastPoints: number;

@@ -14,14 +14,25 @@ export default function HostLobbyPage() {
     const socket = getSocket();
     if (!socket.connected) socket.connect();
 
+    function reclaim() {
+      socket.emit("host:reclaim", { pin }, (res: { ok?: boolean; players?: Player[] }) => {
+        if (res.ok && res.players) setPlayers(res.players);
+      });
+    }
+
+    socket.on("connect", reclaim);
     socket.on("game:player-joined", setPlayers);
     socket.on("game:host-disconnected", () => router.push("/"));
 
+    // Reclaim immediately if already connected (page load after server restart)
+    if (socket.connected) reclaim();
+
     return () => {
+      socket.off("connect", reclaim);
       socket.off("game:player-joined", setPlayers);
       socket.off("game:host-disconnected");
     };
-  }, [router]);
+  }, [pin, router]);
 
   function startGame() {
     getSocket().emit("host:start", { pin });
@@ -48,9 +59,10 @@ export default function HostLobbyPage() {
           {players.map((p) => (
             <div
               key={p.id}
-              className="bg-white/10 rounded-xl px-4 py-3 text-white font-bold text-center truncate animate-in fade-in zoom-in duration-200"
+              className="bg-white/10 rounded-xl px-4 py-3 text-white font-bold flex items-center gap-2 animate-in fade-in zoom-in duration-200"
             >
-              {p.name}
+              {p.avatar && <span className="text-2xl flex-shrink-0">{p.avatar}</span>}
+              <span className="truncate">{p.name}</span>
             </div>
           ))}
           {players.length === 0 && (
