@@ -40,7 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# SQLite runtime data
+# Runtime database
+games.json
 games.db
 games.db-shm
 games.db-wal
